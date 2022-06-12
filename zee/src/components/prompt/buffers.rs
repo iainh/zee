@@ -7,9 +7,10 @@ use zi::{
         select::{Select, SelectProperties},
         text::{Text, TextAlign, TextProperties},
     },
+    prelude::{KeyCode, KeyEvent},
     unicode_width::UnicodeWidthStr,
     Bindings, Callback, Colour, Component, ComponentExt, ComponentLink, Container, FlexBasis,
-    FlexDirection, Item, Key, Layout, Rect, ShouldRender, Style,
+    FlexDirection, Item, Layout, Rect, ShouldRender, Style,
 };
 
 use super::{
@@ -290,6 +291,8 @@ impl Component for BufferPicker {
         }
 
         bindings.set_focus(true);
-        bindings.add("select-buffer", [Key::Char('\n')], || Message::Select);
+        bindings.add("select-buffer", [KeyEvent::from(KeyCode::Enter)], || {
+            Message::Select
+        });
     }
 }
