@@ -17,7 +17,7 @@ use std::{
 };
 use zi::{
     Bindings, Callback, Component, ComponentExt, ComponentLink, FlexBasis, FlexDirection, Item,
-    Key, Layout, NamedBindingQuery, Rect, ShouldRender,
+    KeyEvent, Layout, NamedBindingQuery, Rect, ShouldRender,
 };
 
 use crate::{
@@ -414,7 +414,7 @@ impl Component for Editor {
         }
     }
 
-    fn notify_binding_queries(&self, queries: &[Option<NamedBindingQuery>], keys: &[Key]) {
+    fn notify_binding_queries(&self, queries: &[Option<NamedBindingQuery>], keys: &[KeyEvent]) {
         let merged = queries
             .iter()
             .cloned()

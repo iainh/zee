@@ -40,8 +40,8 @@ smallvec = "1.8.0"
 thiserror = "1.0.30"
 toml = "0.5.9"
 tree-sitter = "0.20.6"
-zi = "0.3.2"
-zi-term = "0.3.2"
+zi = {version = "0.3.2", git="https://github.com/iainh/zi", branch="modifier_support" }
+zi-term = {version = "0.3.2", git="https://github.com/iainh/zi", branch="modifier_support" }
 
 # Local crates
 zee-edit = { version = "0.1.0", path = "../zee-edit" }

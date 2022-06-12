@@ -307,8 +307,6 @@ impl Component for Buffer {
     }
 
     fn bindings(&self, bindings: &mut Bindings<Self>) {
-        use Key::*;
-
         bindings.set_focus(self.properties.focused);
         if !bindings.is_empty() {
             return;
@@ -319,45 +317,44 @@ impl Component for Buffer {
         // Up
         bindings
             .command("move-backward-line", Self::move_up)
-            .with([Ctrl('p')])
-            .with([Up]);
+            .with([KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL)])
+            .with([KeyEvent::from(KeyCode::Up)]);
 
         // Down
         bindings
             .command("move-forward-line", Self::move_down)
-            .with([Ctrl('n')])
-            .with([Down]);
-
+            .with([KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL)])
+            .with([KeyEvent::from(KeyCode::Down)]);
         // Left
         bindings
             .command("move-backward", Self::move_left)
-            .with([Ctrl('b')])
-            .with([Left]);
+            .with([KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)])
+            .with([KeyEvent::from(KeyCode::Left)]);
 
         // Right
         bindings
             .command("move-forward", Self::move_right)
-            .with([Ctrl('f')])
-            .with([Right]);
+            .with([KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL)])
+            .with([KeyEvent::from(KeyCode::Right)]);
 
         // Move by word
         //
-        // TODO: Add Alt + Left / Right / Up / Down alternative key bindings
-        //       For this to be possible, zi should support Alt + a key, not just char
         bindings
             .command("move-backward-word", |this: &Self| {
                 this.properties
                     .cursor
                     .send_cursor(CursorMessage::MoveWord(Direction::Backward, 1))
             })
-            .with([Alt('b')]);
+            .with([KeyEvent::new(KeyCode::Left, KeyModifiers::ALT)])
+            .with([KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT)]);
         bindings
             .command("move-forward-word", |this: &Self| {
                 this.properties
                     .cursor
                     .send_cursor(CursorMessage::MoveWord(Direction::Forward, 1))
             })
-            .with([Alt('f')]);
+            .with([KeyEvent::new(KeyCode::Right, KeyModifiers::ALT)])
+            .with([KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT)]);
 
         // Move by paragraph
         bindings
@@ -366,80 +363,105 @@ impl Component for Buffer {
                     .cursor
                     .send_cursor(CursorMessage::MoveParagraph(Direction::Backward, 1))
             })
-            .with([Alt('p')]);
+            .with([KeyEvent::new(KeyCode::Up, KeyModifiers::ALT)])
+            .with([KeyEvent::new(KeyCode::Char('p'), KeyModifiers::ALT)]);
         bindings
             .command("move-forward-paragraph", |this: &Self| {
                 this.properties
                     .cursor
                     .send_cursor(CursorMessage::MoveParagraph(Direction::Forward, 1))
             })
-            .with([Alt('n')]);
+            .with([KeyEvent::new(KeyCode::Down, KeyModifiers::ALT)])
+            .with([KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)]);
 
         // Page down
         bindings
             .command("move-page-down", Self::move_page_down)
-            .with([Ctrl('v')])
-            .with([PageDown]);
+            .with([KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL)])
+            .with([KeyEvent::from(KeyCode::PageDown)]);
 
         // Page up
         bindings
             .command("move-page-up", Self::move_page_up)
-            .with([Alt('v')])
-            .with([PageUp]);
+            .with([KeyEvent::new(KeyCode::Char('v'), KeyModifiers::ALT)])
+            .with([KeyEvent::from(KeyCode::PageUp)]);
 
         // Start/end of line
         bindings
             .command("move-start-of-line", Self::move_start_of_line)
-            .with([Ctrl('a')])
-            .with([Home]);
+            .with([KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)])
+            .with([KeyEvent::from(KeyCode::Home)]);
         bindings
             .command("move-end-of-line", Self::move_end_of_line)
-            .with([Ctrl('e')])
-            .with([End]);
+            .with([KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL)])
+            .with([KeyEvent::from(KeyCode::End)]);
 
         // Start/end of buffer
         bindings.add(
             "move-start-of-buffer",
-            [Alt('<')],
+            [KeyEvent::new(KeyCode::Char('<'), KeyModifiers::ALT)],
             Self::move_start_of_buffer,
         );
-        bindings.add("move-end-of-buffer", [Alt('>')], Self::move_end_of_buffer);
+        bindings.add(
+            "move-end-of-buffer",
+            [KeyEvent::new(KeyCode::Char('>'), KeyModifiers::ALT)],
+            Self::move_end_of_buffer,
+        );
 
         // Editing
         //
         // Delete forward
         bindings
             .command("delete-forward", Self::delete_forward)
-            .with([Ctrl('d')])
-            .with([Delete]);
+            .with([KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)])
+            .with([KeyEvent::from(KeyCode::Delete)]);
 
         // Delete backward
-        bindings.add("delete-backward", [Backspace], Self::delete_backward);
+        bindings.add(
+            "delete-backward",
+            [KeyEvent::from(KeyCode::Backspace)],
+            Self::delete_backward,
+        );
 
         // Delete line
-        bindings.add("delete-line", [Ctrl('k')], Self::delete_line);
+        bindings.add(
+            "delete-line",
+            [KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL)],
+            Self::delete_line,
+        );
 
         // Insert new line
-        bindings.add("insert-new-line", [Char('\n')], Self::insert_new_line);
-        bindings.add("insert-new-line-after", [Ctrl('o')], |this: &Self| {
-            this.properties.cursor.insert_char('\n', false)
-        });
+        bindings.add(
+            "insert-new-line",
+            [KeyEvent::from(KeyCode::Enter)],
+            Self::insert_new_line,
+        );
+        bindings.add(
+            "insert-new-line-after",
+            [KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL)],
+            |this: &Self| this.properties.cursor.insert_char('\n', false),
+        );
 
         // Insert tab
-        bindings.add("insert-tab", [Char('\t')], |this: &Self| {
-            if DISABLE_TABS {
-                this.properties.cursor.insert_tab()
-            }
-        });
+        bindings.add(
+            "insert-tab",
+            [KeyEvent::from(KeyCode::Tab)],
+            |this: &Self| {
+                if DISABLE_TABS {
+                    this.properties.cursor.insert_tab()
+                }
+            },
+        );
 
         // Insert character
         bindings.add(
             "insert-character",
             AnyCharacter,
-            |this: &Self, keys: &[Key]| match keys {
-                &[Char(character)] if character != '\n' => {
-                    this.properties.cursor.insert_char(character, true)
-                }
+            |this: &Self, keys: &[KeyEvent]| match keys {
+                &[KeyEvent {
+                    code: KeyCode::Char(character),
+                    modifiers: _mods,
+                }] if character != '\n' => this.properties.cursor.insert_char(character, true),
                 _ => {}
             },
         );
@@ -451,25 +473,44 @@ impl Component for Buffer {
             .command("begin-selection", |this: &Self| {
                 this.properties.cursor.begin_selection();
             })
-            .with([Null])
-            .with([Ctrl(' ')]);
+            .with([KeyEvent::from(KeyCode::Null)])
+            .with([KeyEvent::new(KeyCode::Char(' '), KeyModifiers::CONTROL)]);
 
         // Select all
-        bindings.add("select-all", [Ctrl('x'), Char('h')], |this: &Self| {
-            this.properties.cursor.select_all();
-        });
+        bindings.add(
+            "select-all",
+            [
+                KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL),
+                KeyEvent::from(KeyCode::Char('h')),
+            ],
+            |this: &Self| {
+                this.properties.cursor.select_all();
+            },
+        );
         // Copy selection to clipboard
-        bindings.add("copy-selection", [Alt('w')], |this: &Self| {
-            this.properties.cursor.copy_selection_to_clipboard();
-        });
+        bindings.add(
+            "copy-selection",
+            [KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)],
+            |this: &Self| {
+                this.properties.cursor.copy_selection_to_clipboard();
+            },
+        );
         // Cut selection to clipboard
-        bindings.add("cut-selection", [Ctrl('w')], |this: &Self| {
-            this.properties.cursor.cut_selection_to_clipboard();
-        });
+        bindings.add(
+            "cut-selection",
+            [KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL)],
+            |this: &Self| {
+                this.properties.cursor.cut_selection_to_clipboard();
+            },
+        );
         // Paste from clipboard
-        bindings.add("paste-clipboard", [Ctrl('y')], |this: &Self| {
-            this.properties.cursor.paste_from_clipboard();
-        });
+        bindings.add(
+            "paste-clipboard",
+            [KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL)],
+            |this: &Self| {
+                this.properties.cursor.paste_from_clipboard();
+            },
+        );
 
         // Undo / Redo
         //
@@ -478,44 +519,65 @@ impl Component for Buffer {
             .command("undo", |this: &Self| {
                 this.properties.cursor.undo();
             })
-            .with([Ctrl('_')])
-            .with([Ctrl('z')])
-            .with([Ctrl('/')]);
+            .with([KeyEvent::new(KeyCode::Char('_'), KeyModifiers::CONTROL)])
+            .with([KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL)])
+            .with([KeyEvent::new(KeyCode::Char('/'), KeyModifiers::CONTROL)]);
 
         // Redo
-        bindings.add("redo", [Ctrl('q')], |this: &Self| {
-            this.properties.cursor.redo();
-        });
+        bindings.add(
+            "redo",
+            [KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL)],
+            |this: &Self| {
+                this.properties.cursor.redo();
+            },
+        );
 
         // Save buffer
         bindings
             .command("save-buffer", |this: &Self| {
                 this.properties.cursor.save();
             })
-            .with([Ctrl('x'), Ctrl('s')])
-            .with([Ctrl('x'), Char('s')]);
+            .with([
+                KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL),
+                KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            ])
+            .with([
+                KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL),
+                KeyEvent::from(KeyCode::Char('s')),
+            ]);
 
         // Centre cursor visually
-        bindings.add("center-cursor-visually", [Ctrl('l')], || {
-            Message::CenterCursorVisually
-        });
+        bindings.add(
+            "center-cursor-visually",
+            [KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)],
+            || Message::CenterCursorVisually,
+        );
 
         // View edit tree
         //
         // Toggle
-        bindings.add("toggle-edit-tree", [Ctrl('x'), Char('u')], || {
-            Message::ToggleEditTree
-        });
+        bindings.add(
+            "toggle-edit-tree",
+            [
+                KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL),
+                KeyEvent::from(KeyCode::Char('u')),
+            ],
+            || Message::ToggleEditTree,
+        );
 
         // Close
-        bindings.add("clear-selection", [Ctrl('g')], |this: &Self| {
-            if this.viewing_edit_tree {
-                Some(Message::ClearSelection)
-            } else {
-                this.properties.cursor.clear_selection();
-                None
-            }
-        });
+        bindings.add(
+            "clear-selection",
+            [KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL)],
+            |this: &Self| {
+                if this.viewing_edit_tree {
+                    Some(Message::ClearSelection)
+                } else {
+                    this.properties.cursor.clear_selection();
+                    None
+                }
+            },
+        );
     }
 }
 

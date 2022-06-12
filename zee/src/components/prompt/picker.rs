@@ -292,11 +292,16 @@ impl Component for FilePicker {
 
         bindings.set_focus(true);
 
-        bindings.add("open-file", [Key::Char('\n')], || Message::OpenFile);
-        bindings.add("select-parent-directory", [Key::Ctrl('l')], || {
-            Message::SelectParentDirectory
+        bindings.add("open-file", [KeyEvent::from(KeyCode::Enter)], || {
+            Message::OpenFile
         });
-        bindings.add("autocomplete-path", [Key::Char('\t')], || {
+
+        bindings.add(
+            "select-parent-directory",
+            [KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)],
+            || Message::SelectParentDirectory,
+        );
+        bindings.add("autocomplete-path", [KeyEvent::from(KeyCode::Tab)], || {
             Message::AutocompletePath
         });
     }
