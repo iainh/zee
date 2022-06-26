@@ -4,7 +4,7 @@ pub mod tree;
 
 mod diff;
 
-use ropey::{Rope, RopeSlice};
+use ropey::{Rope, RopeBuilder, RopeSlice};
 use std::{cmp, ops::Range};
 
 pub use self::{
@@ -170,50 +170,258 @@ impl Cursor {
         text: &mut Rope,
         characters: impl IntoIterator<Item = char>,
     ) -> OpaqueDiff {
-        self.clear_selection();
-        let mut num_bytes = 0;
-        let mut num_chars = 0;
+        self.insert_chars_at_index(text, self.range.start, characters)
+    }
+
+    pub fn prepend_chars(
+        &mut self,
+        text: &mut Rope,
+        characters: impl IntoIterator<Item = char>,
+    ) -> OpaqueDiff {
+        let line_start = text.line_to_char(text.char_to_line(self.range.start));
+        self.insert_chars_at_index(text, line_start, characters)
+    }
+
+    fn prepend_selection(
+        &mut self,
+        text: &mut Rope,
+        characters: impl IntoIterator<Item = char>,
+    ) -> OpaqueDiff {
+        let first_line_idx = text.char_to_line(self.selection().start);
+        let last_line_idx = text.char_to_line(self.selection().end);
+
+        let line_of_cursor = text.char_to_line(self.range.start);
+
+        let mut prefix = RopeBuilder::new();
         characters
             .into_iter()
-            .enumerate()
-            .for_each(|(offset, character)| {
-                text.insert_char(self.range.start + offset, character);
-                num_bytes += character.len_utf8();
-                num_chars += 1;
-            });
+            .for_each(|c| prefix.append(&c.to_string()));
+
+        let prefix = prefix.finish();
+
+        let mut num_bytes = 0;
+        let mut num_chars = 0;
+        let mut total_inserted = 0;
+        for line_idx in first_line_idx..=last_line_idx {
+            let index = text.line_to_char(line_idx);
+            let (nbytes, nchars) = self.internal_insert_chars_at_index(text, index, prefix.chars());
+
+            if line_idx < line_of_cursor {
+                total_inserted += nchars;
+            }
+
+            num_bytes += nbytes;
+            num_chars += nchars;
+        }
+
+        movement::move_horizontally(text, self, Direction::Forward, total_inserted);
+
+        if let Some(selection) = self.selection {
+            if selection != self.selection().start {
+                self.selection = Some(selection + num_chars);
+            }
+        }
+
         OpaqueDiff::new(
-            text.char_to_byte(self.range.start),
+            text.char_to_byte(self.selection().start),
             0,
             num_bytes,
-            self.range.start,
+            self.selection().start,
             0,
             num_chars,
         )
     }
 
-    pub fn delete_forward(&mut self, text: &mut Rope) -> DeleteOperation {
-        if text.len_chars() == 0 || text.len_chars() == self.range.start {
+    fn internal_insert_chars_at_index(
+        &mut self,
+        text: &mut Rope,
+        index: usize,
+        characters: impl IntoIterator<Item = char>,
+    ) -> (usize, usize) {
+        let mut num_bytes = 0;
+        let mut num_chars = 0;
+
+        characters
+            .into_iter()
+            .enumerate()
+            .for_each(|(offset, character)| {
+                text.insert_char(index + offset, character);
+                num_bytes += character.len_utf8();
+                num_chars += 1;
+            });
+        (num_bytes, num_chars)
+    }
+
+    fn insert_chars_at_index(
+        &mut self,
+        text: &mut Rope,
+        index: usize,
+        characters: impl IntoIterator<Item = char>,
+    ) -> OpaqueDiff {
+        if self.selection.is_some() {
+            self.prepend_selection(text, characters)
+        } else {
+            let (num_bytes, num_chars) =
+                self.internal_insert_chars_at_index(text, index, characters);
+
+            OpaqueDiff::new(
+                text.char_to_byte(self.range.start),
+                0,
+                num_bytes,
+                index,
+                0,
+                num_chars,
+            )
+        }
+    }
+
+    pub fn unindent(&mut self, text: &mut Rope) -> DeleteOperation {
+        if self.selection.is_some() {
+            self.unindent_selection(text)
+        } else {
+            let line_start = text.line_to_char(text.char_to_line(self.range.start));
+            let count = self.length_of_leading_whitespace(text, line_start);
+
+            self.delete_forward_from_index(text, line_start, count)
+        }
+    }
+
+    fn unindent_selection(&mut self, text: &mut Rope) -> DeleteOperation {
+        let mut head_inserts = 0;
+
+        let line_of_cursor = text.char_to_line(self.range.start);
+
+        let first_line_idx = text.char_to_line(self.selection().start);
+        let last_line_idx = text.char_to_line(self.selection().end);
+
+        let initial_grapheme_start = text.line_to_char(first_line_idx);
+        let initial_grapheme_end = text.line_to_char(last_line_idx + 1) - 1;
+
+        let initial_byte_start = text.char_to_byte(initial_grapheme_start);
+        let initial_byte_end = text.char_to_byte(initial_grapheme_end);
+
+        let initial_byte_length = initial_byte_end - initial_byte_start;
+        let initial_char_length = initial_grapheme_end - initial_grapheme_start;
+
+        let mut total_chars_removed = 0;
+
+        for line_idx in first_line_idx..=last_line_idx {
+            let index = text.line_to_char(line_idx);
+            let line_start = text.line_to_char(text.char_to_line(index));
+            let length = self.length_of_leading_whitespace(text, line_start);
+
+            if line_idx == line_of_cursor {
+                head_inserts += length;
+            }
+
+            if length > 0 {
+                text.remove(index..index + length);
+                total_chars_removed += length;
+            }
+        }
+
+        // Start of the first line affected
+        let final_grapheme_start = text.line_to_char(first_line_idx);
+        // End of the last line affected
+        let final_grapheme_end = text.line_to_char(last_line_idx + 1) - 1;
+        let deleted: Rope = text.slice(final_grapheme_start..final_grapheme_end).into();
+
+        let byte_range =
+            text.char_to_byte(final_grapheme_start)..text.char_to_byte(final_grapheme_end);
+
+        let diff = OpaqueDiff::new(
+            byte_range.start,
+            initial_byte_length,
+            byte_range.end - byte_range.start,
+            final_grapheme_start,
+            initial_char_length,
+            final_grapheme_end - final_grapheme_start,
+        );
+
+        let whitespace_on_cursor_line =
+            self.length_of_leading_whitespace(text, text.line_to_char(line_of_cursor));
+
+        let amount_to_move = cmp::min(
+            (initial_grapheme_end - initial_grapheme_start)
+                - (final_grapheme_end - final_grapheme_start),
+            whitespace_on_cursor_line,
+        );
+
+        let distance_from_start_of_line = self.range.start - text.line_to_char(line_of_cursor);
+
+        if whitespace_on_cursor_line >= amount_to_move {
+            if line_of_cursor != first_line_idx {
+                // Selection is forwards
+
+                if distance_from_start_of_line >= total_chars_removed {
+                    if self.range.start >= text.len_chars() {
+                        self.range.start = text.len_chars() - 1;
+                    }
+                    movement::move_horizontally(text, self, Direction::Backward, amount_to_move);
+                }
+            } else {
+                // selection is backwards
+                if distance_from_start_of_line >= head_inserts {
+                    movement::move_horizontally(text, self, Direction::Backward, head_inserts);
+                }
+                if let Some(selection) = self.selection {
+                    self.selection = Some(selection - total_chars_removed);
+                }
+            }
+        }
+        DeleteOperation { diff, deleted }
+    }
+
+    fn length_of_leading_whitespace(&self, text: &mut Rope, line_start: usize) -> usize {
+        match text.get_char(line_start) {
+            Some('\t') => 1,
+            Some(_) => match text.get_slice(line_start..line_start + TAB_WIDTH) {
+                Some(leading_chars) => leading_chars
+                    .chars()
+                    .into_iter()
+                    .position(|c| c != ' ')
+                    .unwrap_or(TAB_WIDTH),
+                None => 0,
+            },
+            None => 0,
+        }
+    }
+
+    fn delete_forward_from_index(
+        &mut self,
+        text: &mut Rope,
+        index: usize,
+        length: usize,
+    ) -> DeleteOperation {
+        if text.len_chars() == 0 || text.len_chars() == index || length == 0 {
             return DeleteOperation::empty();
         }
 
-        let byte_range = text.char_to_byte(self.range.start)..text.char_to_byte(self.range.end);
+        let byte_range = text.char_to_byte(index)..text.char_to_byte(index + length);
         let diff = OpaqueDiff::new(
             byte_range.start,
             byte_range.end - byte_range.start,
             0,
-            self.range.start,
-            self.range.end - self.range.start,
+            index,
+            length,
             0,
         );
-        text.remove(self.range.clone());
 
-        let grapheme_start = self.range.start;
-        let grapheme_end = text.next_grapheme_boundary(self.range.start);
+        text.remove(index..index + length);
+
+        let grapheme_start = index;
+        let grapheme_end = text.next_grapheme_boundary(index);
         let deleted = text.slice(grapheme_start..grapheme_end).into();
 
         *self = Cursor::with_range(grapheme_start..grapheme_end);
 
         DeleteOperation { diff, deleted }
+    }
+
+    pub fn delete_forward(&mut self, text: &mut Rope) -> DeleteOperation {
+        let index = self.range.start;
+        let length = self.range.end - self.range.start;
+        self.delete_forward_from_index(text, index, length)
     }
 
     pub fn delete_backward(&mut self, text: &mut Rope) -> DeleteOperation {
@@ -352,6 +560,15 @@ mod tests {
         assert_eq!(expected, text);
     }
 
+    #[test]
+    fn delete_forward_from_index() {
+        let (mut text, mut cursor) = text_with_cursor("// Hello world!\n\n");
+        let expected = Rope::from("// Hello rld!\n\n");
+
+        cursor.delete_forward_from_index(&mut text, 9, 2);
+        assert_eq!(expected, text);
+    }
+
     // Delete backward
     #[test]
     fn delete_backward_at_the_end() {
@@ -376,6 +593,114 @@ mod tests {
         let expected = text.clone();
         cursor.delete_backward(&mut text);
         assert_eq!(expected, text);
+    }
+
+    #[test]
+    fn unindent_selection_text_on_all_lines() {
+        let (mut text, mut cursor) = text_with_cursor("\tline1\n\tline2\n\tline3\n");
+        cursor.begin_selection();
+        movement::move_to_end_of_buffer(&text, &mut cursor);
+        movement::move_horizontally(&text, &mut cursor, Direction::Backward, 4);
+
+        let expected = "line1\nline2\nline3\n";
+        cursor.unindent_selection(&mut text);
+        assert_eq!(expected, text);
+    }
+
+    #[test]
+    fn unindent_selection_text_on_all_lines_bottom_up() {
+        let (mut text, mut cursor) = text_with_cursor("\tline1\n\tline2\n\tline3\n");
+        movement::move_to_end_of_buffer(&text, &mut cursor);
+        cursor.begin_selection();
+        movement::move_to_start_of_buffer(&text, &mut cursor);
+
+        let expected = "line1\nline2\nline3\n";
+        cursor.unindent_selection(&mut text);
+        assert_eq!(expected, text);
+    }
+
+    #[test]
+    fn unindent_selection_blank_last_line() {
+        let (mut text, mut cursor) = text_with_cursor("\tline1\n\tline2\n");
+        cursor.begin_selection();
+        movement::move_to_end_of_buffer(&text, &mut cursor);
+
+        let expected = "line1\nline2\n";
+        cursor.unindent_selection(&mut text);
+        assert_eq!(expected, text);
+        assert_eq!(cursor.selection().start, 0);
+        assert_eq!(cursor.selection().end, text.len_chars() - 1);
+    }
+
+    #[test]
+    fn unindent_selection_blank_last_line_bottom_up() {
+        let (mut text, mut cursor) = text_with_cursor("\tline1\n\tline2\n\n\n");
+        movement::move_to_end_of_buffer(&text, &mut cursor);
+        cursor.begin_selection();
+        movement::move_to_start_of_buffer(&text, &mut cursor);
+
+        let expected = "line1\nline2\n\n\n";
+        cursor.unindent_selection(&mut text);
+        assert_eq!(expected, text);
+    }
+
+    #[test]
+    fn unindent_selection_blank_first_line() {
+        let (mut text, mut cursor) = text_with_cursor("\n\t\tline1\n\tline2\n");
+        cursor.begin_selection();
+        movement::move_to_end_of_buffer(&text, &mut cursor);
+
+        let expected = "\nline1\nline2\n";
+        cursor.unindent_selection(&mut text);
+        cursor.unindent_selection(&mut text);
+        assert_eq!(expected, text);
+
+        assert_eq!(cursor.selection().start, 0);
+        assert_eq!(cursor.selection().end, text.len_chars() - 1);
+    }
+
+    #[test]
+    fn unindent_selection_blank_first_line_bottom_up() {
+        let (mut text, mut cursor) = text_with_cursor("\n\t\tline1\n\tline2\n");
+        movement::move_to_end_of_buffer(&text, &mut cursor);
+        cursor.begin_selection();
+        movement::move_to_start_of_buffer(&text, &mut cursor);
+
+        let expected = "\nline1\nline2\n";
+        cursor.unindent_selection(&mut text);
+        cursor.unindent_selection(&mut text);
+        assert_eq!(expected, text);
+
+        assert_eq!(cursor.selection().start, 0);
+        assert_eq!(cursor.selection().end, text.len_chars());
+    }
+
+    // Leading whitespace calculation
+
+    #[test]
+    fn length_of_leading_whitespace_spaces() {
+        //    fn length_of_leading_whitespace(&mut self, text: &mut Rope, line_start: usize) -> usize {
+        let (mut text, cursor) = text_with_cursor("    // Hello world!\n\n");
+        let expected = 4;
+        let result = cursor.length_of_leading_whitespace(&mut text, 0);
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn length_of_leading_whitespace_tab() {
+        // fn length_of_leading_whitespace(&mut self, text: &mut Rope, line_start: usize) -> usize {
+        let (mut text, cursor) = text_with_cursor("\t// Hello world!\n\n");
+        let expected = 1;
+        let result = cursor.length_of_leading_whitespace(&mut text, 0);
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn length_of_leading_whitespace_mixed() {
+        let (mut text, cursor) = text_with_cursor("  \t// Hello world!\n\n");
+        let expected = 2;
+        let result = cursor.length_of_leading_whitespace(&mut text, 0);
+        assert_eq!(expected, result);
     }
 
     const TEXT: &str = r#"

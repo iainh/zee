@@ -357,6 +357,13 @@ impl Buffer {
                     }
                     operation.diff
                 }
+                CursorMessage::Unindent => {
+                    let operation = self.cursors[cursor_id.0].unindent(&mut self.content);
+                    if operation.diff.is_empty() {
+                        self.context.log("Beginning of line");
+                    }
+                    operation.diff
+                }
                 CursorMessage::DeleteLine => {
                     let diff = self.delete_line(cursor_id);
                     if diff.is_empty() {
@@ -374,7 +381,7 @@ impl Buffer {
                         ('\t', 1)
                     };
                     let diff = self.cursors[cursor_id.0]
-                        .insert_chars(&mut self.content, std::iter::repeat(tab).take(char_count));
+                        .prepend_chars(&mut self.content, std::iter::repeat(tab).take(char_count));
                     movement::move_horizontally(
                         &self.content,
                         &mut self.cursors[cursor_id.0],
@@ -694,6 +701,11 @@ impl BufferCursor {
     }
 
     #[inline]
+    pub fn unindent(&self) {
+        self.send_cursor(CursorMessage::Unindent);
+    }
+
+    #[inline]
     pub fn delete_line(&self) {
         self.send_cursor(CursorMessage::DeleteLine);
     }
@@ -757,6 +769,7 @@ pub enum CursorMessage {
 
     DeleteForward,
     DeleteBackward,
+    Unindent,
     DeleteLine,
     InsertTab,
     InsertNewLine,

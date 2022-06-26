@@ -177,6 +177,10 @@ impl Buffer {
         self.properties.cursor.delete_backward()
     }
 
+    fn unindent(&self) {
+        self.properties.cursor.unindent()
+    }
+
     fn delete_line(&self) {
         self.properties.cursor.delete_line()
     }
@@ -423,6 +427,13 @@ impl Component for Buffer {
             Self::delete_backward,
         );
 
+        // Remove tab
+        bindings.add(
+            "backtab",
+            [KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT)],
+            |this: &Self| this.properties.cursor.unindent(),
+        );
+
         // Delete line
         bindings.add(
             "delete-line",
@@ -446,9 +457,7 @@ impl Component for Buffer {
         bindings.add(
             "insert-tab",
             [KeyEvent::from(KeyCode::Tab)],
-            |this: &Self| {
-                this.properties.cursor.insert_tab()
-            },
+            |this: &Self| this.properties.cursor.insert_tab(),
         );
 
         // Insert character
