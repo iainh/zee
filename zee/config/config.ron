@@ -120,6 +120,27 @@
                 )
             ),
         ),
+        // Java
+        Mode(
+            name: "Java",
+            scope: "source.java",
+            injection_regex: "java",
+            patterns: [Suffix(".java")],
+            comment: Some(Comment(token: "// ")),
+            indentation: Indentation(
+                width: 4,
+                unit: Space,
+            ),
+            grammar: Some(
+                Grammar(
+                    id: "java",
+                    source: Git(
+                        git: "https://github.com/tree-sitter/tree-sitter-java",
+                        rev: "ac14b4b1884102839455d32543ab6d53ae089ab7",
+                    ),
+                )
+            ),
+        ),
         // Javascript
         Mode(
             name: "Javascript",
