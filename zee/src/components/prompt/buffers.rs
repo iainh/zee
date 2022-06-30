@@ -13,6 +13,8 @@ use zi::{
     FlexDirection, Item, Layout, Rect, ShouldRender, Style,
 };
 
+use zee_grammar::Mode;
+
 use super::{
     matcher::Matcher,
     status::{Status, StatusProperties},
@@ -20,7 +22,6 @@ use super::{
 };
 use crate::{
     editor::{BufferId, ContextHandle},
-    mode::Mode,
     task::TaskId,
 };
 
