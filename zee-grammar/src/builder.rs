@@ -100,14 +100,35 @@ pub fn fetch_and_build_tree_sitter_parsers(
 ) -> Result<()> {
     mode_configs.into_par_iter().try_for_each(|config| {
         if let Some(ref grammar) = config.grammar {
-            fetch_grammar(grammar)?;
-            build_grammar(grammar, defaults)?;
-            log::info!(
-                "{:>12} {} grammar {}",
-                "Up to date".bold().bright_green(),
-                grammar.grammar_id.bold().bright_blue(),
-                "✅".green().dimmed(),
-            );
+            match fetch_grammar(grammar) {
+                Ok(_fetched) => match build_grammar(grammar, defaults) {
+                    Ok(_built) => log::info!(
+                        "{:>12} {} grammar {}",
+                        "Up to date".bold().bright_green(),
+                        grammar.grammar_id.bold().bright_blue(),
+                        "✅".green().dimmed(),
+                    ),
+                    Err(e) => {
+                        log::error!(
+                            "{:>12} {} grammar {}",
+                            "Build error".bold().bright_red(),
+                            grammar.grammar_id.bold().bright_blue(),
+                            "❌".red().dimmed(),
+                        );
+                        log::error!("{}", e);
+                    }
+                },
+                Err(e) => {
+                    log::error!(
+                        "{:>12} {} grammar {}",
+                        "Fetch error".bold().bright_red(),
+                        grammar.grammar_id.bold().bright_blue(),
+                        "❌".red().dimmed()
+                    );
+
+                    log::error!("{}", e);
+                }
+            }
         }
         Ok(())
     })
