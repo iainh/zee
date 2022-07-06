@@ -1,90 +1,54 @@
-;; Adapted from MDeiml/tree-sitter-markdown and nvim-treesitter/nvim-treesitter
-(atx_heading (heading_content) @text.title)
-(setext_heading (heading_content) @text.title)
+(setext_heading (heading_content) @markup.heading.1 (setext_h1_underline) @markup.heading.marker)
+(setext_heading (heading_content) @markup.heading.2 (setext_h2_underline) @markup.heading.marker)
+
+(atx_heading (atx_h1_marker) @markup.heading.marker (heading_content) @markup.heading.1)
+(atx_heading (atx_h2_marker) @markup.heading.marker (heading_content) @markup.heading.2)
+(atx_heading (atx_h3_marker) @markup.heading.marker (heading_content) @markup.heading.3)
+(atx_heading (atx_h4_marker) @markup.heading.marker (heading_content) @markup.heading.4)
+(atx_heading (atx_h5_marker) @markup.heading.marker (heading_content) @markup.heading.5)
+(atx_heading (atx_h6_marker) @markup.heading.marker (heading_content) @markup.heading.6)
 
 [
-  (atx_h1_marker)
-  (atx_h2_marker)
-  (atx_h3_marker)
-  (atx_h4_marker)
-  (atx_h5_marker)
-  (atx_h6_marker)
-  (setext_h1_underline)
-  (setext_h2_underline)
-] @punctuation.special
-
-[
-  (code_span)
-  (link_title)
   (indented_code_block)
-  (fenced_code_block)
-] @text.literal
+  (code_fence_content)
+] @markup.raw.block
+
+(block_quote) @markup.quote
+
+(code_span) @markup.raw.inline
+
+(emphasis) @markup.italic
+
+(strong_emphasis) @markup.bold
+
+(link_destination) @markup.link.url
+(link_label) @markup.link.label
+
+(info_string) @label
 
 [
-  (emphasis_delimiter)
-  (code_span_delimiter)
-  (fenced_code_block_delimiter)
-] @punctuation.delimiter
-
-(code_fence_content) @none
-
-(emphasis) @text.emphasis
-
-(strong_emphasis) @text.strong
-
-[
-  (link_destination)
-  (uri_autolink)
-] @text.uri
-
-[
-  (link_label)
   (link_text)
   (image_description)
-] @text.reference
+] @markup.link.text
 
 [
   (list_marker_plus)
   (list_marker_minus)
   (list_marker_star)
+] @markup.list.numbered
+
+[
   (list_marker_dot)
   (list_marker_parenthesis)
-  (thematic_break)
-] @punctuation.special
-
-(block_quote_marker) @punctuation.special
+] @markup.list.unnumbered
 
 [
   (backslash_escape)
   (hard_line_break)
-] @string.escape
+] @constant.character.escape
 
-(image "!" @punctuation.delimiter)
-(image "[" @punctuation.delimiter)
-(image "]" @punctuation.delimiter)
-(image "(" @punctuation.delimiter)
-; (image ")" @punctuation.delimiter)
+(thematic_break) @punctuation.delimiter
 
-(inline_link "[" @punctuation.delimiter)
-(inline_link "]" @punctuation.delimiter)
-(inline_link "(" @punctuation.delimiter)
-; (inline_link ")" @punctuation.delimiter)
-
-(shortcut_link "[" @punctuation.delimiter)
-(shortcut_link "]" @punctuation.delimiter)
-
-([
-  (info_string)
-  (fenced_code_block_delimiter)
-  (code_span_delimiter)
-  (emphasis_delimiter)
-] @conceal
-(#set! conceal ""))
-
-(inline_link
-  ["]"] @conceal
-  (#set! conceal " "))
-
-(inline_link
-  "["  @conceal
-  (#set! conceal ""))
+(inline_link ["[" "]" "(" ")"] @punctuation.bracket)
+(image ["[" "]" "(" ")"] @punctuation.bracket)
+(fenced_code_block_delimiter) @punctuation.bracket

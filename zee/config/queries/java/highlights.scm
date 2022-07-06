@@ -17,8 +17,6 @@
 
 ; Types
 
-(type_identifier) @type
-
 (interface_declaration
   name: (identifier) @type)
 (class_declaration
@@ -32,15 +30,11 @@
 ((scoped_identifier
   scope: (identifier) @type)
  (#match? @type "^[A-Z]"))
-((method_invocation
-  object: (identifier) @type)
- (#match? @type "^[A-Z]"))
-((method_reference
-  . (identifier) @type)
- (#match? @type "^[A-Z]"))
 
 (constructor_declaration
   name: (identifier) @type)
+
+(type_identifier) @type
 
 [
   (boolean_type)
@@ -65,14 +59,15 @@
   (hex_integer_literal)
   (decimal_integer_literal)
   (octal_integer_literal)
-  (decimal_floating_point_literal)
-  (hex_floating_point_literal)
-] @number
+] @constant.numeric.integer
 
 [
-  (character_literal)
-  (string_literal)
-] @string
+  (decimal_floating_point_literal)
+  (hex_floating_point_literal)
+] @constant.numeric.float
+
+(character_literal) @constant.character
+(string_literal) @string
 
 [
   (true)
@@ -80,10 +75,7 @@
   (null_literal)
 ] @constant.builtin
 
-[
-  (line_comment)
-  (block_comment)
-] @comment
+(comment) @comment
 
 ; Keywords
 
@@ -112,7 +104,6 @@
   "module"
   "native"
   "new"
-  "non-sealed"
   "open"
   "opens"
   "package"
@@ -122,7 +113,6 @@
   "public"
   "requires"
   "return"
-  "sealed"
   "static"
   "strictfp"
   "switch"

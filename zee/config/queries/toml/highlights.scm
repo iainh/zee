@@ -1,22 +1,19 @@
 ; Properties
 ;-----------
 
-(table (bare_key) @table.name)
-(table (dotted_key) @table.name)
-(table_array_element (bare_key) @table.name)
-(table_array_element (dotted_key) @table.name)
-
-(bare_key) @property
-(quoted_key) @string
+[
+  (bare_key)
+  (quoted_key)
+] @variable.other.member
 
 ; Literals
 ;---------
 
-(boolean) @constant.builtin
+(boolean) @constant.builtin.boolean
 (comment) @comment
 (string) @string
-(integer) @number
-(float) @number
+(integer) @constant.numeric.integer
+(float) @constant.numeric.float
 (offset_date_time) @string.special
 (local_date_time) @string.special
 (local_date) @string.special
