@@ -211,24 +211,23 @@ impl Cursor {
             let index = text.line_to_char(line_idx);
             let (nbytes, nchars) = self.internal_insert_chars_at_index(text, index, prefix.chars());
 
-            num_bytes += nbytes;
-            num_chars += nchars;
+            if line_idx != last_line_idx {
+                num_bytes += nbytes;
+                num_chars += nchars;
+            }
         }
 
+        let prefix_char_length = prefix.len_chars();
         if let Some(selection) = self.selection {
             if self.selection().end == self.range.start {
                 // Forward selection direction
-                movement::move_horizontally(text, self, Direction::Forward, num_chars - 1);
-                self.selection = Some(selection + num_chars / (last_line_idx - first_line_idx));
+                movement::move_horizontally(text, self, Direction::Forward, num_chars);
+                self.selection = Some(selection + prefix_char_length);
             } else {
                 // 'Backwards' selection direction
-                movement::move_horizontally(
-                    text,
-                    self,
-                    Direction::Forward,
-                    num_chars / (last_line_idx - first_line_idx) - 1,
-                );
-                self.selection = Some(selection + num_chars);
+                // In the backward case, we've already added the new prefix to the cursor line so
+                // we don't need to move the cursor manually.
+                self.selection = Some(selection + num_chars + prefix_char_length);
             }
         }
 
@@ -287,18 +286,18 @@ impl Cursor {
         }
     }
 
-    pub fn unindent(&mut self, text: &mut Rope) -> DeleteOperation {
+    pub fn unindent(&mut self, text: &mut Rope, indent_width: usize) -> DeleteOperation {
         if self.selection.is_some() {
-            self.unindent_selection(text)
+            self.unindent_selection(text, indent_width)
         } else {
             let line_start = text.line_to_char(text.char_to_line(self.range.start));
-            let count = self.length_of_leading_whitespace(text, line_start);
+            let count = self.length_of_leading_whitespace(text, line_start, indent_width);
 
             self.delete_forward_from_index(text, line_start, count)
         }
     }
 
-    fn unindent_selection(&mut self, text: &mut Rope) -> DeleteOperation {
+    fn unindent_selection(&mut self, text: &mut Rope, indent_width: usize) -> DeleteOperation {
         let first_line_idx = text.char_to_line(self.selection().start);
         let last_line_idx = text.char_to_line(self.selection().end);
 
@@ -313,10 +312,12 @@ impl Cursor {
 
         let mut total_chars_removed = 0;
 
+        // Capture the cursor line before we start removing characters.
+        let line_of_cursor = text.cursor_to_line(self);
+
         for line_idx in first_line_idx..=last_line_idx {
             let char_idx = text.line_to_char(line_idx);
-            let line_start = text.line_to_char(text.char_to_line(char_idx));
-            let length = self.length_of_leading_whitespace(text, line_start);
+            let length = self.length_of_leading_whitespace(text, char_idx, indent_width);
 
             text.remove(char_idx..char_idx + length);
             total_chars_removed += length;
@@ -325,8 +326,15 @@ impl Cursor {
         // Start of the first line affected
         let final_grapheme_start = text.line_to_char(first_line_idx);
         // End of the last line affected
-        let final_grapheme_end = text.line_to_char(last_line_idx + 1) - 1;
-        let deleted: Rope = text.slice(final_grapheme_start..final_grapheme_end).into();
+        let final_grapheme_end = cmp::min(
+            text.line_to_char(last_line_idx + 1).saturating_sub(1),
+            text.len_chars().saturating_sub(1),
+        );
+
+        let range_start = cmp::min(final_grapheme_start, final_grapheme_end);
+        let range_end = cmp::max(final_grapheme_start, final_grapheme_end);
+
+        let deleted: Rope = text.slice(range_start..range_end).into();
 
         let byte_range =
             text.char_to_byte(final_grapheme_start)..text.char_to_byte(final_grapheme_end);
@@ -341,46 +349,97 @@ impl Cursor {
         );
 
         if let Some(selection) = self.selection {
-            let head_move_count = total_chars_removed / (last_line_idx - first_line_idx);
+            let line_count = last_line_idx - first_line_idx + 1;
+            let head_move_count = total_chars_removed / line_count;
+
             if self.selection().end == self.range.start {
+                self.range.start -= total_chars_removed;
+                self.range.end = text.next_grapheme_boundary(self.range.start);
+
                 // Forward selection direction
                 let cursor_char_idx = self.range.start;
-                let start_of_cursor_line = text.line_to_char(text.cursor_to_line(self));
 
-                let move_distance =
-                    cmp::min(total_chars_removed, cursor_char_idx - start_of_cursor_line);
-                movement::move_horizontally(text, self, Direction::Backward, move_distance);
+                let start_of_cursor_line = text.line_to_char(text.char_to_line(cursor_char_idx));
 
-                if selection >= head_move_count {
-                    self.selection = Some(selection - head_move_count);
+                let move_distance = cmp::min(
+                    cmp::min(total_chars_removed, cursor_char_idx - start_of_cursor_line),
+                    indent_width,
+                );
+
+                let line_start_of_selection_start =
+                    text.line_to_char(text.char_to_line(self.selection().start));
+
+                let cursor_line_char_idx = text.line_to_char(line_of_cursor);
+
+                if cursor_char_idx < cursor_line_char_idx + indent_width
+                    && cursor_char_idx + move_distance < text.len_chars()
+                {
+                    movement::move_horizontally(text, self, Direction::Forward, move_distance);
                 }
+
+                // `selection - head_move_count` might be less the the start of the line. Ensure
+                // that if this is the case we pin the selection tail to the start of the line
+                // instead.
+                self.selection = Some(cmp::max(
+                    selection.saturating_sub(head_move_count),
+                    line_start_of_selection_start,
+                ));
             } else {
                 // 'Backwards' selection direction
-                let cursor_line_whitespace = self
-                    .length_of_leading_whitespace(text, text.char_to_line(self.selection().start));
+                let cursor_line_start = text.line_to_char(text.cursor_to_line(self));
 
-                if cursor_line_whitespace >= head_move_count {
-                    movement::move_horizontally(text, self, Direction::Backward, head_move_count);
+                // If the selection range starts after the start of the file
+                if self.selection().start > 0 {
+                    // if the distance from the start of the line is greater than or equal to the
+                    // distance that we want to move
+                    if self.selection().start >= cursor_line_start + head_move_count {
+                        movement::move_horizontally(
+                            text,
+                            self,
+                            Direction::Backward,
+                            head_move_count,
+                        );
+                    } else {
+                        // Move only the distance to the start of the line.
+                        let move_count = self.selection().start - cursor_line_start;
+                        if move_count > 0 {
+                            movement::move_horizontally(
+                                text,
+                                self,
+                                Direction::Backward,
+                                move_count,
+                            );
+                        }
+                    }
                 }
 
-                if selection >= total_chars_removed {
-                    self.selection = Some(selection - total_chars_removed);
-                }
+                let char_of_line_of_selection_end =
+                    text.line_to_char(text.char_to_line(self.selection().start));
+
+                self.selection = Some(cmp::max(
+                    char_of_line_of_selection_end,
+                    selection.saturating_sub(total_chars_removed),
+                ));
             }
         }
 
         DeleteOperation { diff, deleted }
     }
 
-    fn length_of_leading_whitespace(&self, text: &mut Rope, line_start: usize) -> usize {
+    fn length_of_leading_whitespace(
+        &self,
+        text: &mut Rope,
+        line_start: usize,
+        indent_width: usize,
+    ) -> usize {
         match text.get_char(line_start) {
             Some('\t') => 1,
-            Some(_) => match text.get_slice(line_start..line_start + TAB_WIDTH) {
+            Some(_) => match text.get_slice(line_start..line_start + indent_width) {
                 Some(leading_chars) => leading_chars
                     .chars()
                     .into_iter()
                     .position(|c| c != ' ')
-                    .unwrap_or(TAB_WIDTH),
+                    .unwrap_or(indent_width),
                 None => 0,
             },
             None => 0,
@@ -512,11 +571,8 @@ impl Cursor {
 
 #[cfg(test)]
 mod tests {
-    use ropey::Rope;
-
-    use crate::movement::move_backward_paragraph;
-
     use super::*;
+    use ropey::Rope;
 
     fn text_with_cursor(text: impl Into<Rope>) -> (Rope, Cursor) {
         let text = text.into();
@@ -605,7 +661,7 @@ mod tests {
         movement::move_horizontally(&text, &mut cursor, Direction::Backward, 4);
 
         let expected = "line1\nline2\nline3\n";
-        cursor.unindent_selection(&mut text);
+        cursor.unindent_selection(&mut text, 4);
         assert_eq!(expected, text);
     }
 
@@ -617,7 +673,7 @@ mod tests {
         movement::move_to_start_of_buffer(&text, &mut cursor);
 
         let expected = "line1\nline2\nline3\n";
-        cursor.unindent_selection(&mut text);
+        cursor.unindent_selection(&mut text, 4);
         assert_eq!(expected, text);
     }
 
@@ -631,7 +687,7 @@ mod tests {
         movement::move_horizontally(&text, &mut cursor, Direction::Backward, 2);
 
         let expected = "line1\nline2\n";
-        cursor.unindent_selection(&mut text);
+        cursor.unindent_selection(&mut text, 4);
         assert_eq!(expected, text);
     }
 
@@ -643,7 +699,7 @@ mod tests {
         movement::move_to_start_of_buffer(&text, &mut cursor);
 
         let expected = "line1\nline2\n\n\n";
-        cursor.unindent_selection(&mut text);
+        cursor.unindent_selection(&mut text, 4);
         assert_eq!(expected, text);
     }
 
@@ -655,7 +711,7 @@ mod tests {
         movement::move_horizontally(&text, &mut cursor, Direction::Backward, 2);
 
         let expected = "\nline1\nline2\n";
-        cursor.unindent_selection(&mut text);
+        cursor.unindent_selection(&mut text, 4);
 
         assert_eq!(expected, text);
 
@@ -670,8 +726,8 @@ mod tests {
         cursor.begin_selection();
         movement::move_to_start_of_buffer(&text, &mut cursor);
 
-        cursor.unindent_selection(&mut text);
-        cursor.unindent_selection(&mut text);
+        cursor.unindent_selection(&mut text, 4);
+        cursor.unindent_selection(&mut text, 4);
 
         let expected = "\nline1\nline2\n";
         assert_eq!(expected, text);
@@ -687,7 +743,7 @@ mod tests {
         //    fn length_of_leading_whitespace(&mut self, text: &mut Rope, line_start: usize) -> usize {
         let (mut text, cursor) = text_with_cursor("    // Hello world!\n\n");
         let expected = 4;
-        let result = cursor.length_of_leading_whitespace(&mut text, 0);
+        let result = cursor.length_of_leading_whitespace(&mut text, 0, 4);
         assert_eq!(expected, result);
     }
 
@@ -696,7 +752,7 @@ mod tests {
         // fn length_of_leading_whitespace(&mut self, text: &mut Rope, line_start: usize) -> usize {
         let (mut text, cursor) = text_with_cursor("\t// Hello world!\n\n");
         let expected = 1;
-        let result = cursor.length_of_leading_whitespace(&mut text, 0);
+        let result = cursor.length_of_leading_whitespace(&mut text, 0, 4);
         assert_eq!(expected, result);
     }
 
@@ -704,7 +760,7 @@ mod tests {
     fn length_of_leading_whitespace_mixed() {
         let (mut text, cursor) = text_with_cursor("  \t// Hello world!\n\n");
         let expected = 2;
-        let result = cursor.length_of_leading_whitespace(&mut text, 0);
+        let result = cursor.length_of_leading_whitespace(&mut text, 0, 4);
         assert_eq!(expected, result);
     }
 

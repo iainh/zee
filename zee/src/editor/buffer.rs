@@ -11,9 +11,11 @@ use zi::ComponentLink;
 
 use zee_edit::{
     graphemes::strip_trailing_whitespace, movement, tree::EditTree, Cursor, Direction, OpaqueDiff,
-    TAB_WIDTH,
 };
-use zee_grammar::Mode;
+use zee_grammar::{
+    config::{IndentationConfig, IndentationUnit},
+    Mode,
+};
 
 use super::{ContextHandle, Editor};
 use crate::{
@@ -363,8 +365,9 @@ impl Buffer {
                     }
                     operation.diff
                 }
-                CursorMessage::Unindent => {
-                    let operation = self.cursors[cursor_id.0].unindent(&mut self.content);
+                CursorMessage::Unindent { config } => {
+                    let operation =
+                        self.cursors[cursor_id.0].unindent(&mut self.content, config.width);
                     if operation.diff.is_empty() {
                         self.context.log("Beginning of line");
                     }
@@ -380,19 +383,19 @@ impl Buffer {
                 CursorMessage::Yank => self.paste_from_clipboard(cursor_id),
                 CursorMessage::CopySelection => self.copy_selection_to_clipboard(cursor_id),
                 CursorMessage::CutSelection => self.cut_selection_to_clipboard(cursor_id),
-                CursorMessage::InsertTab => {
-                    let (tab, char_count) = if DISABLE_TABS {
-                        (' ', TAB_WIDTH)
-                    } else {
-                        ('\t', 1)
+                CursorMessage::Indent { config } => {
+                    let (character, count) = match config.unit {
+                        IndentationUnit::Space => (' ', config.width),
+                        IndentationUnit::Tab => ('\t', 1),
                     };
                     let diff = self.cursors[cursor_id.0]
-                        .prepend_chars(&mut self.content, std::iter::repeat(tab).take(char_count));
+                        .prepend_chars(&mut self.content, std::iter::repeat(character).take(count));
+
                     movement::move_horizontally(
                         &self.content,
                         &mut self.cursors[cursor_id.0],
                         Direction::Forward,
-                        char_count,
+                        count,
                     );
                     diff
                 }
@@ -707,8 +710,10 @@ impl BufferCursor {
     }
 
     #[inline]
-    pub fn unindent(&self) {
-        self.send_cursor(CursorMessage::Unindent);
+    pub fn unindent(&self, indentation_config: IndentationConfig) {
+        self.send_cursor(CursorMessage::Unindent {
+            config: indentation_config,
+        });
     }
 
     #[inline]
@@ -722,8 +727,10 @@ impl BufferCursor {
     }
 
     #[inline]
-    pub fn insert_tab(&self) {
-        self.send_cursor(CursorMessage::InsertTab);
+    pub fn indent(&self, indentation_config: IndentationConfig) {
+        self.send_cursor(CursorMessage::Indent {
+            config: indentation_config,
+        });
     }
 
     #[inline]
@@ -775,11 +782,11 @@ pub enum CursorMessage {
 
     DeleteForward,
     DeleteBackward,
-    Unindent,
+    Unindent { config: IndentationConfig },
     DeleteLine,
-    InsertTab,
     InsertNewLine,
     InsertChar { character: char, move_forward: bool },
+    Indent { config: IndentationConfig },
 
     // Undo / Redo
     Undo,
@@ -808,5 +815,3 @@ impl std::ops::Deref for RepositoryRc {
         &self.0
     }
 }
-
-pub const DISABLE_TABS: bool = false;
