@@ -1,11 +1,11 @@
 [
- (true)
- (false)
- ] @constant.builtin.boolean
+  (true)
+  (false)
+] @constant.builtin.boolean
 (null) @constant.builtin
 (number) @constant.numeric
 (pair
- key: (_) @keyword)
+  key: (_) @keyword)
 
 (string) @string
 (escape_sequence) @constant.character.escape
@@ -13,8 +13,8 @@
 
 "," @punctuation.delimiter
 [
- "["
- "]"
- "{"
- "}"
- ] @punctuation.bracket
+  "["
+  "]"
+  "{"
+  "}"
+] @punctuation.bracket
