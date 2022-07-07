@@ -5,6 +5,8 @@ mod windows;
 pub use self::buffer::{BufferId, ModifiedStatus};
 
 use git2::Repository;
+use rayon::iter::IntoParallelRefIterator;
+use rayon::iter::ParallelIterator;
 use ropey::Rope;
 use std::{
     borrow::Cow,
@@ -244,9 +246,8 @@ impl Component for Editor {
                 modes: properties
                     .config
                     .modes
-                    .iter()
-                    .cloned()
-                    .filter_map(|config| zee_grammar::builder::load_mode(config).ok())
+                    .par_iter()
+                    .filter_map(|config| zee_grammar::builder::load_mode(config.clone()).ok())
                     .collect(),
                 config: properties.config,
                 task_pool: properties.task_pool,
