@@ -3,7 +3,7 @@ use ropey::Rope;
 use std::{
     fmt::Display,
     fs::File,
-    io::{self, BufWriter},
+    io::{self, BufReader, BufWriter},
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -20,6 +20,7 @@ use crate::{
     error::Result,
     syntax::parse::{ParseTree, ParserPool, ParserStatus},
     versioned::{Versioned, WeakHandle},
+    watcher::{FileWatcher, WatchToken},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -47,7 +48,7 @@ pub struct BuffersMessage {
 }
 
 impl BuffersMessage {
-    fn new(buffer_id: BufferId, message: BufferMessage) -> Self {
+    pub fn new(buffer_id: BufferId, message: BufferMessage) -> Self {
         Self {
             buffer_id,
             inner: message,
@@ -59,14 +60,18 @@ pub struct Buffers {
     context: ContextHandle,
     buffers: Vec<Buffer>,
     next_buffer_id: usize,
+    watcher: FileWatcher,
 }
 
 impl Buffers {
     pub fn new(context: ContextHandle) -> Self {
+        let watcher = FileWatcher::new(context.link.clone());
+
         Self {
             context,
             buffers: Vec::new(),
             next_buffer_id: 0,
+            watcher,
         }
     }
 
@@ -83,13 +88,34 @@ impl Buffers {
             self.context.clone(),
             buffer_id,
             text,
-            file_path,
+            file_path.clone(),
             repo,
         ));
+
+        if let Some(file_path) = file_path.as_ref() {
+            log::debug!("Watching {}", &file_path.display());
+            self.watcher.watch(file_path, false, WatchToken(buffer_id));
+        }
+
         buffer_id
     }
 
     pub fn remove(&mut self, id: BufferId) -> Option<Buffer> {
+        let file_path = self
+            .buffers
+            .iter()
+            .find(|buffer| buffer.id == id)
+            .and_then(|buffer| buffer.file_path.as_ref());
+
+        if let Some(file_path) = file_path {
+            log::debug!(
+                "Unwatching buffer_id: {}, file_path: {}",
+                id,
+                &file_path.display()
+            );
+            self.watcher.unwatch(file_path, WatchToken(id));
+        }
+
         self.buffers
             .iter()
             .position(|buffer| buffer.id == id)
@@ -312,6 +338,26 @@ impl Buffer {
             }
             BufferMessage::PreviousChildRevision => self.content.previous_child(),
             BufferMessage::NextChildRevision => self.content.next_child(),
+            BufferMessage::Refresh => {
+                // only refresh the buffer if the modification status is 'unchanged'.
+                if self.modified_status() == ModifiedStatus::Unchanged {
+                    let new_content = Rope::from_reader(BufReader::new(
+                        File::open(&self.file_path.as_ref().unwrap()).unwrap(),
+                    ))
+                    .unwrap();
+
+                    for cursor in self.cursors.iter_mut() {
+                        cursor.sync(&self.content, &new_content);
+                    }
+
+                    // Create a new revision, update the content.
+                    self.content
+                        .create_revision(OpaqueDiff::empty(), self.cursors[0].clone());
+                    *self.content.staged_mut() = new_content;
+
+                    self.update_parse_tree(&OpaqueDiff::empty(), true);
+                }
+            }
         };
     }
 
@@ -767,6 +813,7 @@ pub enum BufferMessage {
         cursor_id: CursorId,
         message: CursorMessage,
     },
+    Refresh,
 }
 
 #[derive(Debug)]

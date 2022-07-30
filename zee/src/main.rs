@@ -11,6 +11,7 @@ mod syntax;
 mod task;
 mod utils;
 mod versioned;
+mod watcher;
 
 use clap::Parser;
 use std::{env, path::PathBuf};
