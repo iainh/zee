@@ -67,34 +67,23 @@ struct Watchee {
     filter: Option<Box<PathFilter>>,
 }
 
-/// Token provided to `FileWatcher`, to associate events with
-/// interested parties.
-///
-/// Note: `WatchToken`s are assumed to correspond with an
-/// 'area of interest'; that is, they are used to route delivery
-/// of events.
+/// Token provided to `FileWatcher`, to associate events with the corresponding buffer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WatchToken(pub BufferId);
-
-/// A trait for types which can be notified of new events.
-/// New events are accessible through the `FileWatcher` instance.
-pub trait Notify: Send {
-    fn notify(&self, context: &ComponentLink<Editor>);
-}
 
 pub type EventQueue = VecDeque<(WatchToken, Event)>;
 
 pub type PathFilter = dyn Fn(&Path) -> bool + Send + 'static;
 
 impl FileWatcher {
+    /// Create a new `FileWatcher` using an existing `ComponentLink<Editor>`. This link will be
+    /// used to notify the editor of changes to watched files.
     pub fn new(link: ComponentLink<Editor>) -> Self {
         let state = Arc::new(Mutex::new(WatcherState::default()));
         let state_clone = state.clone();
 
         let event_fn = move |res: notify::Result<notify::Event>| match res {
             Ok(event) => {
-                log::info!("== event: {:?}", event);
-
                 let mut state = state_clone.lock().unwrap();
                 let WatcherState {
                     ref mut events,
@@ -120,19 +109,14 @@ impl FileWatcher {
         FileWatcher { inner, state }
     }
 
-    /// Begin watching `path`. As `Event`s (documented in the
-    /// [notify](https://docs.rs/notify) crate) arrive, they are stored
-    /// with the associated `token` and a task is added to the runloop's
-    /// idle queue.
-    ///
-    /// Delivery of events then requires that the runloop's handler
-    /// correctly forward the `handle_idle` call to the interested party.
+    /// Begin watching `path`. As `Event`s (documented in the [notify](https://docs.rs/notify)
+    /// crate) arrive, they are stored with the associated `token`.
     pub fn watch(&mut self, path: &Path, recursive: bool, token: WatchToken) {
         self.watch_impl(path, recursive, token, None);
     }
 
-    /// Like `watch`, but taking a predicate function that filters delivery
-    /// of events based on their path.
+    /// Like `watch`, but taking a predicate function that filters delivery of events based on
+    /// their path.
     #[allow(dead_code)]
     pub fn watch_filtered<F>(&mut self, path: &Path, recursive: bool, token: WatchToken, filter: F)
     where
@@ -176,9 +160,8 @@ impl FileWatcher {
         state.watchees.push(w);
     }
 
-    /// Removes the provided token/path pair from the watch list.
-    /// Does not stop watching this path, if it is associated with
-    /// other tokens.
+    /// Removes the provided token/path pair from the watch list. Does not stop watching this path,
+    /// if it is associated with other tokens.
     pub fn unwatch(&mut self, path: &Path, token: WatchToken) {
         let mut state = self.state.lock().unwrap();
 
@@ -195,8 +178,7 @@ impl FileWatcher {
                 }
             }
 
-            // if this was recursive, check if any child paths need to be
-            // manually re-added
+            // if this was recursive, check if any child paths need to be manually re-added
             if removed.recursive {
                 // do this in two steps because we've borrowed mutably up top
                 let to_add = state
