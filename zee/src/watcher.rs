@@ -31,8 +31,6 @@
 //! - There is the option (via `FileWatcher::watch_filtered`) to include
 //! a predicate along with a path, to filter paths before delivery.
 //!
-//! - We are integrated with the xi_rpc runloop; events are queued as
-//! they arrive, and an idle task is scheduled.
 
 use notify::{event::*, recommended_watcher, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::VecDeque;
@@ -44,9 +42,7 @@ use zi::ComponentLink;
 use crate::editor::buffer::{BufferMessage, BuffersMessage};
 use crate::editor::{BufferId, Editor};
 
-/// Wrapper around a `notify::Watcher`. It runs the inner watcher
-/// in a separate thread, and communicates with it via a [crossbeam channel].
-/// [crossbeam channel]: https://docs.rs/crossbeam-channel
+/// Wrapper around a `notify::Watcher`. It runs the inner watcher in a separate thread
 pub struct FileWatcher {
     inner: RecommendedWatcher,
     state: Arc<Mutex<WatcherState>>,
@@ -97,8 +93,7 @@ impl FileWatcher {
                     .for_each(|t| events.push_back((t, event.clone())));
 
                 for (token, _) in events {
-                    let buffer_message = BufferMessage::Refresh;
-                    link.send(BuffersMessage::new(token.0, buffer_message).into());
+                    link.send(BuffersMessage::new(token.0, BufferMessage::Refresh).into());
                 }
             }
             Err(e) => log::error!("Error creating FileWatcher. {}", e),
@@ -218,7 +213,7 @@ impl Watchee {
             }
             EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
                 if event.paths.len() == 2 {
-                    //There will be two paths. First is "from" and other is "to".
+                    // There will be two paths. First is "from" and other is "to".
                     self.applies_to_path(&event.paths[0]) || self.applies_to_path(&event.paths[1])
                 } else {
                     log::info!(
@@ -234,16 +229,15 @@ impl Watchee {
     }
 
     fn applies_to_path(&self, path: &Path) -> bool {
-        let general_case = if path.starts_with(&self.path) {
+        let path_is_prefix = if path.starts_with(&self.path) {
             (self.recursive || self.path == path) || path.parent() == Some(&self.path)
         } else {
             false
         };
 
-        if let Some(ref filter) = self.filter {
-            general_case && filter(path)
-        } else {
-            general_case
+        match self.filter {
+            Some(ref filter) => path_is_prefix && filter(path),
+            None => path_is_prefix,
         }
     }
 }
